@@ -1,0 +1,40 @@
+[
+  {
+    "url": "/ad/locations/2851299795",
+    "images": [
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/23/fc/25/23fc25127da2be27ffd62207870059c54f83ffc4.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/0d/a0/9b/0da09baf914b9a9841208023999429a9683c9a40.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/15/83/62/15836232501a2b6265dbf71f7fdd0ce766a1048d.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/3a/d0/5d/3ad05d8b1b97370dcf53a6c14e03a11a6fe02a12.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/23/fc/25/23fc25127da2be27ffd62207870059c54f83ffc4.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/0d/a0/9b/0da09baf914b9a9841208023999429a9683c9a40.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/15/83/62/15836232501a2b6265dbf71f7fdd0ce766a1048d.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/3a/d0/5d/3ad05d8b1b97370dcf53a6c14e03a11a6fe02a12.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/23/fc/25/23fc25127da2be27ffd62207870059c54f83ffc4.jpg?rule=ad-large"
+    ],
+    "price": ["600 €", "600 €"]
+  },
+  {
+    "url": "/ad/locations/2749894348",
+    "images": [
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/5f/ba/8c/5fba8cd9ffc984842fe60c89db59aed8d27b9343.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/d9/e8/80/d9e8801eca47b5091e0d2315fd768718057ff37d.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/d1/53/41/d1534158d987ce1c8160c930694be78b2eb1daa1.jpg?rule=ad-large"
+    ],
+    "price": ["1 200 €", "1 200 €"]
+  },
+  {
+    "url": "/ad/locations/2835780682",
+    "images": [
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/df/6c/bc/df6cbcce00f6a217c8346f9bccd7a7bfb00c0edc.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/66/c1/6c/66c16cb52f7f8bceb227b739befba1be4af68553.jpg?rule=ad-large",
+      "https://img.leboncoin.fr/api/v1/lbcpb1/images/98/7f/b4/987fb428d5ccfb0fbb4dc8860d5433731ad0de1c.jpg?rule=ad-large"
+    ],
+    "price": ["900 €", "900 €"]
+  },
+  {
+    "url": "/ad/locations/2848645971",
+    "images": "",
+    "price": ""
+  }
+]
