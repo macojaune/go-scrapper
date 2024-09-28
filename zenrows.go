@@ -40,7 +40,7 @@ func search_ad_links() ([]string, error) {
 
 func get_ad_data(path string) (AdResult, error) {
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://api.zenrows.com/v1/?apikey=523cc0567faf890d60602f97181b9128a134c8ea&url=https%3A%2F%2Fwww.leboncoin.fr"+url.QueryEscape(path)+"&js_render=true&premium_proxy=true&css_extractor=%257B%2522images%2522%253A%2522section%255Bdata-qa-id%253D%27adview_spotlight_container%27%255D%2520img%2520%2540src%2522%252C%2522price%2522%253A%2522div%255Bdata-qa-id%253D%27adview_price%27%255D%2520p.text-headline-2%2522%257D", nil)
+	req, err := http.NewRequest("GET", "https://api.zenrows.com/v1/?apikey=523cc0567faf890d60602f97181b9128a134c8ea&url=https%3A%2F%2Fwww.leboncoin.fr"+url.QueryEscape(path)+"&css_extractor=%257B%2522images%2522%253A%2522section%255Bdata-qa-id%253D%27adview_spotlight_container%27%255D%2520img%2520%2540src%2522%252C%2522price%2522%253A%2522div%255Bdata-qa-id%253D%27adview_price%27%255D%2520p.text-headline-2%2522%257D", nil)
 	if err != nil {
 		log.Fatalln(err)
 		return AdResult{}, err
