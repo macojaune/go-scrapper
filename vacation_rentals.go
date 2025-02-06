@@ -30,15 +30,21 @@ func createBrowser() (context.Context, context.CancelFunc) {
 		chromedp.UserAgent(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36`),
 	)
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	ctx, cancel := chromedp.NewContext(allocCtx)
-	return ctx, cancel
+	
+	// Combine both cancel functions into one
+	return ctx, func() {
+		cancel()
+		allocCancel()
+	}
+
 }
 
 func scrapeAirbnb(ctx context.Context, location string) ([]RentalProperty, error) {
 	var properties []RentalProperty
 	url := fmt.Sprintf("https://www.airbnb.com/s/%s/homes", location)
-
+	
 	// Navigate to the first page
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(url),
@@ -51,7 +57,7 @@ func scrapeAirbnb(ctx context.Context, location string) ([]RentalProperty, error
 	var urls []string
 
 	// Loop through pages (limit to 5 pages for example)
-	for page := 0; page < 5; page++ {
+	for page := 0; page < 10; page++ {
 		log.Println("Processing page: ", page)
 		var page_urls []string
 
@@ -88,32 +94,52 @@ func scrapeAirbnb(ctx context.Context, location string) ([]RentalProperty, error
 	}
 	log.Println("URLS: ", len(urls))
 	// Process URLs from current page
+	// Process URLs concurrently
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	semaphore := make(chan struct{}, 3) // Limit concurrent requests
+
 	for _, url := range urls {
-		log.Println("Processing URL: ", url)
-		property := RentalProperty{
-			Platform: "Airbnb",
-			URL:      "https://" + url,
-			Location: location,
-		}
-		err := chromedp.Run(ctx,
-			chromedp.Navigate(property.URL),
-			chromedp.Sleep(4*time.Second), // Wait for navigation
-			// chromedp.WaitVisible("h1", chromedp.ByQuery),
-			chromedp.TextContent("h1", &property.Title, chromedp.ByQuery),
-			chromedp.TextContent("h1", &property.Title, chromedp.ByQuery),
-			chromedp.TextContent("div[data-testid='book-it-default'] div[aria-hidden='true'] span", &property.Price, chromedp.ByQuery),
-			chromedp.AttributeValue("a[href*='/users/show'][aria-label*='hôte']", "href", &property.Owner, nil, chromedp.ByQuery),
-		)
-		property.Owner = "https://www.airbnb.fr" + property.Owner
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
 
-		if err != nil {
-			log.Printf("Error navigating to URL %s: %v", property.URL, err)
-			continue
-		}
+			// Create new browser context for each goroutine
+			newCtx, cancel := createBrowser()
+			defer cancel()
 
-		properties = append(properties, property)
+			property := RentalProperty{
+				Platform: "Airbnb",
+				URL:      "https://" + url,
+				Location: location,
+			}
 
+			err := chromedp.Run(newCtx,
+				chromedp.Navigate(property.URL),
+				chromedp.Sleep(4*time.Second),
+				chromedp.TextContent("h1", &property.Title, chromedp.ByQuery),
+				chromedp.TextContent("div[data-testid='book-it-default'] div[aria-hidden='true'] span", &property.Price, chromedp.ByQuery),
+				chromedp.AttributeValue("a[href*='/users/show'][aria-label*='hôte']", "href", &property.Owner, nil, chromedp.ByQuery),
+			)
+
+			if err != nil {
+				log.Printf("Error processing URL %s: %v", property.URL, err)
+				return
+			}
+
+			property.Owner = "https://www.airbnb.fr" + property.Owner
+
+			mu.Lock()
+			properties = append(properties, property)
+			mu.Unlock()
+		}(url)
 	}
+
+	wg.Wait()
 	return properties, nil
 }
 
@@ -184,6 +210,22 @@ func scrapeAllPlatforms(location string) []RentalProperty {
 	return allProperties
 }
 
+func loadExistingProperties(filename string) ([]RentalProperty, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []RentalProperty{}, nil
+		}
+		return nil, err
+	}
+
+	var properties []RentalProperty
+	if err := json.Unmarshal(data, &properties); err != nil {
+		return nil, err
+	}
+	return properties, nil
+}
+
 func main() {
 	locations := []string{
 		"Lamentin--Basse~Terre--Guadeloupe",
@@ -194,11 +236,36 @@ func main() {
 	}
 
 	for _, location := range locations {
-		properties := scrapeAllPlatforms(location)
 		filename := fmt.Sprintf("vacation_rentals_%s.json",
 			strings.ReplaceAll(location, "-", "_"))
 
-		data, err := json.MarshalIndent(properties, "", "  ")
+		// Load existing properties
+		existingProperties, err := loadExistingProperties(filename)
+		if err != nil {
+			log.Printf("Error loading existing properties: %v", err)
+			continue
+		}
+
+		// Create a map for quick lookup of existing URLs
+		existingURLs := make(map[string]bool)
+		for _, prop := range existingProperties {
+			existingURLs[prop.URL] = true
+		}
+
+		// Get new properties
+		newProperties := scrapeAllPlatforms(location)
+
+		// Append only non-duplicate properties
+		var updatedProperties []RentalProperty
+		updatedProperties = append(updatedProperties, existingProperties...)
+		for _, prop := range newProperties {
+			if !existingURLs[prop.URL] {
+				updatedProperties = append(updatedProperties, prop)
+			}
+		}
+
+		// Save updated properties
+		data, err := json.MarshalIndent(updatedProperties, "", "  ")
 		if err != nil {
 			log.Printf("Error marshaling data: %v", err)
 			continue
