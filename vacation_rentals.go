@@ -10,6 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/fetch"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
 
@@ -22,17 +25,22 @@ type RentalProperty struct {
 	Owner    string `json:"owner"`
 	Address  string `json:"address"`
 	Type     string `json:"type"`
+	Capacity string `json:"capacity"`
+	City string `json:"city"`
 }
 
 func createBrowser() (context.Context, context.CancelFunc) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", true),
+		chromedp.Flag("headless", false),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.UserAgent(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36`),
+		chromedp.WindowSize(1920, 1080),
+		// chromedp.ProxyServer("https://superproxy.zenrows.com:1338"),
 	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+
 	ctx, cancel := chromedp.NewContext(allocCtx)
 
 	// // Add timeout
@@ -59,7 +67,7 @@ func scrapeAirbnb(ctx context.Context, location string, filename string) error {
 	var urls []string
 
 	// Loop through pages (limit to 5 pages for example)
-	for page := 0; page < 12; page++ {
+	for page := 0; page < 15; page++ {
 		log.Println("Processing page: ", page)
 		var page_urls []string
 
@@ -94,7 +102,7 @@ func scrapeAirbnb(ctx context.Context, location string, filename string) error {
 		}
 
 	}
-	log.Println("URLS: ", len(urls))
+	log.Println("airbnb URLS: ", len(urls))
 	// Process URLs from current page
 	// Process URLs concurrently
 	var wg sync.WaitGroup
@@ -269,6 +277,7 @@ func scrapeBooking(ctx context.Context, location string, filename string) error 
 
 				if err != nil {
 					log.Printf("Error saving to file: %v", err)
+					return
 				}
 			}
 		}(url)
@@ -278,17 +287,210 @@ func scrapeBooking(ctx context.Context, location string, filename string) error 
 	return nil
 }
 
-func scrapeAbritel(ctx context.Context, location string) ([]RentalProperty, error) {
-	var properties []RentalProperty
-	url := fmt.Sprintf("https://www.abritel.fr/search/keywords:%s", location)
+func scrapeAbritel(ctx context.Context, location string, filename string) error {
+	// url := fmt.Sprintf("https://www.abritel.fr/search/destination=%s", location)
+	url := "https://www.tripadvisor.fr/VacationRentals-g2108743-Reviews-Lamentin_Basse_Terre_Island_Guadeloupe-Vacation_Rentals.html"
+
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		go func() {
+			switch ev := ev.(type) {
+			case *fetch.EventAuthRequired:
+				c := chromedp.FromContext(ctx)
+				execCtx := cdp.WithExecutor(ctx, c.Target)
+
+				resp := &fetch.AuthChallengeResponse{
+					Response: fetch.AuthChallengeResponseResponseProvideCredentials,
+					Username: "GLgynXvGK7FG",
+					Password: "c3uyspTDhfAt",
+				}
+
+				err := fetch.ContinueWithAuth(ev.RequestID, resp).Do(execCtx)
+				if err != nil {
+					log.Print(err)
+				}
+
+			case *fetch.EventRequestPaused:
+				c := chromedp.FromContext(ctx)
+				execCtx := cdp.WithExecutor(ctx, c.Target)
+				err := fetch.ContinueRequest(ev.RequestID).Do(execCtx)
+				if err != nil {
+					log.Print(err)
+				}
+			}
+		}()
+	})
 
 	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			network.SetExtraHTTPHeaders(map[string]interface{}{
+				"Accept-Language": "fr-Fr,fr;q=0.9",
+				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+				"DNT":             "1",
+				"Connection":      "keep-alive",
+			})
+			return nil
+		}),
+		fetch.Enable().WithHandleAuthRequests(true),
 		chromedp.Navigate(url),
-		chromedp.Sleep(5*time.Second),
-		// Add specific selectors and actions for Abritel
 	)
+	if err != nil {
+		log.Printf("Error visiting URL: %s, %s", url, err)
+	}
 
-	return properties, err
+	var urls []string
+	// Loop through pages (limit to 5 pages for example)
+	for page := 0; page < 5; page++ {
+		log.Println("Processing page: ", page)
+		var page_urls []string
+
+		err = chromedp.Run(ctx,
+			chromedp.Sleep(3*time.Second),
+			chromedp.Evaluate(`Array.from(document.querySelectorAll('h2 > a')).map(el => el.href)`, &page_urls),
+		)
+		if err != nil {
+			log.Printf("Error extracting URLs on page: %d, err: %s", page, err)
+			break
+		}
+		log.Println("URLS: ", len(page_urls))
+
+		urls = append(urls, page_urls...)
+
+		// Try to go to next page
+		var hasNextPage bool
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`!!document.querySelector("a[data-smoke-attr='pagination-next-arrow']")`, &hasNextPage),
+		)
+		if err != nil || !hasNextPage {
+			log.Println("No more pages or error checking next page:", err)
+			break
+		}
+
+		// Click next page button
+		err = chromedp.Run(ctx,
+			chromedp.Click("a[data-smoke-attr='pagination-next-arrow']", chromedp.ByQuery),
+		)
+
+		if err != nil {
+			log.Println("Error navigating to next page: ", err)
+			break
+		}
+	}
+	log.Println("tripadvisor URLS: ", len(urls))
+	// Process URLs from current page
+	// Process URLs concurrently
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	semaphore := make(chan struct{}, 1) // Limit concurrent requests
+
+	for index, url := range urls {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			// Create new browser context for each goroutine
+			newCtx, cancel := createBrowser()
+			defer cancel()
+
+			property := RentalProperty{
+				Platform: "TripAdvisor",
+				URL:      url,
+				Location: "Basse-Terre",
+			}
+
+			log.Println("Processing URL: ", index)
+			chromedp.ListenTarget(newCtx, func(ev interface{}) {
+				go func() {
+					switch ev := ev.(type) {
+					case *fetch.EventAuthRequired:
+						c := chromedp.FromContext(newCtx)
+						execCtx := cdp.WithExecutor(newCtx, c.Target)
+
+						resp := &fetch.AuthChallengeResponse{
+							Response: fetch.AuthChallengeResponseResponseProvideCredentials,
+							Username: "GLgynXvGK7FG",
+							Password: "c3uyspTDhfAt",
+						}
+
+						err := fetch.ContinueWithAuth(ev.RequestID, resp).Do(execCtx)
+						if err != nil {
+							log.Print(err)
+						}
+
+					case *fetch.EventRequestPaused:
+						c := chromedp.FromContext(newCtx)
+						execCtx := cdp.WithExecutor(newCtx, c.Target)
+						err := fetch.ContinueRequest(ev.RequestID).Do(execCtx)
+						if err != nil {
+							log.Print(err, ev.Request.URL)
+						}
+					}
+				}()
+			})
+			err := chromedp.Run(newCtx,
+				chromedp.ActionFunc(func(ctx context.Context) error {
+					network.SetExtraHTTPHeaders(map[string]interface{}{
+						"Accept-Language": "fr-Fr,fr;q=0.9",
+						"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+						"DNT":             "1",
+						"Connection":      "keep-alive",
+					})
+					return nil
+				}),
+				fetch.Enable().WithHandleAuthRequests(true),
+				chromedp.Navigate(property.URL),
+				chromedp.Sleep(4*time.Second),
+				chromedp.TextContent("h1", &property.Title, chromedp.ByQuery),
+				chromedp.TextContent("div[data-automation='nightlyPrice']", &property.Price, chromedp.ByQuery),
+				chromedp.TextContent("#vr-detail-page-overview div div div svg + div", &property.Type, chromedp.ByQuery),
+				chromedp.TextContent("#vr-detail-page-overview div div div:nth-child(3) svg + div", &property.Capacity, chromedp.ByQuery),
+			)
+
+			if err != nil {
+				log.Printf("Error processing URL %s: %v", property.URL, err)
+				return
+			}
+
+			mu.Lock()
+			// Write single property to file
+			existingProperties, err := loadExistingProperties(filename)
+			if err != nil {
+				log.Printf("Error loading properties: %v", err)
+				mu.Unlock()
+				return
+			}
+
+			// Check for duplicates
+			exists := false
+			for _, ep := range existingProperties {
+				if ep.URL == property.URL {
+					exists = true
+					break
+				}
+			}
+
+			if !exists {
+				existingProperties = append(existingProperties, property)
+				data, err := json.MarshalIndent(existingProperties, "", "  ")
+				if err != nil {
+					log.Printf("Error marshaling data: %v", err)
+					mu.Unlock()
+					return
+				}
+
+				if err := os.WriteFile(filename, data, 0644); err != nil {
+					log.Printf("Error saving to file: %v", err)
+				}
+			}
+			mu.Unlock()
+		}(url)
+	}
+
+	wg.Wait()
+	return nil
 }
 
 func scrapeAllPlatforms(location string, filename string) {
@@ -297,7 +499,7 @@ func scrapeAllPlatforms(location string, filename string) {
 		name    string
 		scraper func(context.Context, string, string) error
 	}{
-		// {"Airbnb", scrapeAirbnb},
+		{"Airbnb", scrapeAirbnb},
 		{"Booking", scrapeBooking},
 		// {"Abritel", scrapeAbritel},
 	}
@@ -338,11 +540,11 @@ func loadExistingProperties(filename string) ([]RentalProperty, error) {
 
 func main() {
 	locations := []string{
-		"Lamentin--Basse~Terre--Guadeloupe",
-		// "Sainte~Rose--Basse~Terre--Guadeloupe",
-		// "Deshaies--Basse~Terre--Guadeloupe",
-		// "Petit~Bourg--Basse~Terre--Guadeloupe",
-		// "Goyave--Basse~Terre--Guadeloupe"
+		// "Lamentin--Basse~Terre--Guadeloupe",
+		"Sainte~Rose--Basse~Terre--Guadeloupe",
+		"Deshaies--Basse~Terre--Guadeloupe",
+		"Petit~Bourg--Basse~Terre--Guadeloupe",
+		"Goyave--Basse~Terre--Guadeloupe",
 	}
 
 	for _, location := range locations {
